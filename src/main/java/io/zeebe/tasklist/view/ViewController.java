@@ -1,5 +1,7 @@
 package io.zeebe.tasklist.view;
 
+import com.github.mustachejava.DefaultMustacheFactory;
+import com.github.mustachejava.MustacheFactory;
 import com.samskivert.mustache.Mustache;
 import com.samskivert.mustache.Template;
 import io.zeebe.tasklist.Roles;
@@ -12,7 +14,11 @@ import io.zeebe.tasklist.repository.TaskRepository;
 import io.zeebe.tasklist.repository.UserRepository;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.PrintWriter;
 import java.io.Reader;
+import java.io.StringWriter;
+import java.io.Writer;
+import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.time.Duration;
@@ -32,9 +38,18 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.csrf.CsrfToken;
+
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
+
 import org.springframework.web.bind.annotation.PathVariable;
+
+import org.springframework.web.bind.annotation.ResponseBody;
+
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.view.RedirectView;
 
 @Controller
@@ -53,9 +68,12 @@ public class ViewController {
 
   private Template defaultTaskTemplate;
 
+  private MustacheFactory mf;
+
   @PostConstruct
   public void loadTemplate() {
     try {
+      mf = new DefaultMustacheFactory();
       final InputStream inputStream = getClass().getResourceAsStream(defaultTaskForm);
 
       final Reader reader;
@@ -93,7 +111,7 @@ public class ViewController {
     model.put("count", count);
 
     addPaginationToModel(model, pageable, count);
-    addCommonsToModel(model);
+    addCommonsToModel(model, getCsrfToken());
 
     return "task-list-view";
   }
@@ -131,7 +149,7 @@ public class ViewController {
     model.put("count", count);
 
     addPaginationToModel(model, pageable, count);
-    addCommonsToModel(model);
+    addCommonsToModel(model, getCsrfToken());
 
     return "task-list-view";
   }
@@ -231,7 +249,7 @@ public class ViewController {
     model.put("count", count);
 
     addPaginationToModel(model, pageable, count);
-    addCommonsToModel(model);
+    addCommonsToModel(model, getCsrfToken());
 
     return "claimable-task-list-view";
   }
@@ -268,7 +286,7 @@ public class ViewController {
     model.put("count", count);
 
     addPaginationToModel(model, pageable, count);
-    addCommonsToModel(model);
+    addCommonsToModel(model, getCsrfToken());
 
     return "claimable-task-list-view";
   }
@@ -287,9 +305,11 @@ public class ViewController {
   }
 
   @GetMapping("/views/users")
+  @ResponseBody
   public String userList(Map<String, Object> model, @PageableDefault(size = 10) Pageable pageable) {
 
     final long count = userRepository.count();
+    StringWriter responseWriter = new StringWriter();
 
     final List<UserEntity> users = new ArrayList<>();
     for (UserEntity user : userRepository.findAll(pageable)) {
@@ -306,13 +326,23 @@ public class ViewController {
     model.put("availableGroups", groupNames);
 
     addPaginationToModel(model, pageable, count);
-    addCommonsToModel(model);
+    addCommonsToModel(model, getCsrfToken());
 
-    return "user-view";
+
+    com.github.mustachejava.Mustache mustache = mf.compile("templates/user-view.html");
+
+    try{
+      mustache.execute(responseWriter, model).flush();
+    }
+    catch(Exception e){
+      e.printStackTrace();
+    }
+    
+    return responseWriter.toString();
   }
 
   @GetMapping("/views/groups")
-  public String groupList(
+  public ModelAndView groupList(
       Map<String, Object> model, @PageableDefault(size = 10) Pageable pageable) {
 
     final long count = groupRepository.count();
@@ -326,9 +356,10 @@ public class ViewController {
     model.put("count", count);
 
     addPaginationToModel(model, pageable, count);
-    addCommonsToModel(model);
+    addCommonsToModel(model, getCsrfToken());
 
-    return "group-view";
+    return new ModelAndView("group-view", model);
+    //return "group-view";
   }
 
   private void addPaginationToModel(
@@ -343,6 +374,27 @@ public class ViewController {
     if (count > (1 + currentPage) * pageable.getPageSize()) {
       model.put("nextPage", currentPage + 1);
     }
+  }
+
+  private void addCommonsToModel(Map<String, Object> model, CsrfToken tokenCsrf) {
+
+    final Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+    final List<String> authorities =
+        authentication
+            .getAuthorities()
+            .stream()
+            .map(GrantedAuthority::getAuthority)
+            .collect(Collectors.toList());
+
+    final UserDto userDto = new UserDto();
+    userDto.setName(authentication.getName());
+
+    final boolean isAdmin = authorities.contains("ROLE_" + Roles.ADMIN);
+    userDto.setAdmin(isAdmin);
+
+    model.put("user", userDto);
+    model.put("_csrf", tokenCsrf);
+
   }
 
   private void addCommonsToModel(Map<String, Object> model) {
@@ -362,10 +414,18 @@ public class ViewController {
     userDto.setAdmin(isAdmin);
 
     model.put("user", userDto);
+
   }
 
   private String getUsername() {
     final String username = SecurityContextHolder.getContext().getAuthentication().getName();
     return username;
+  }
+
+  private CsrfToken getCsrfToken(){
+    ServletRequestAttributes attr = (ServletRequestAttributes) RequestContextHolder.currentRequestAttributes();
+    CsrfToken csrf = (CsrfToken) attr.getRequest().getAttribute(CsrfToken.class.getName());
+
+    return csrf;
   }
 }
