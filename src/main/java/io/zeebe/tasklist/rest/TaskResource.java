@@ -16,12 +16,17 @@
 package io.zeebe.tasklist.rest;
 
 import io.zeebe.tasklist.ZeebeClientService;
+import io.zeebe.tasklist.entity.GroupEntity;
 import io.zeebe.tasklist.entity.TaskEntity;
 import io.zeebe.tasklist.repository.TaskRepository;
+import io.zeebe.tasklist.repository.UserRepository;
+
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -33,7 +38,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/tasks")
 public class TaskResource {
 
-  @Autowired private TaskRepository repository;
+  @Autowired private TaskRepository taskRepository;
+
+  @Autowired private UserRepository userRepository;
 
   @Autowired private ZeebeClientService zeebeClientService;
 
@@ -42,7 +49,7 @@ public class TaskResource {
       @PathVariable("key") long key, @RequestBody List<TaskVariable> variables) {
 
     final TaskEntity task =
-        repository
+      taskRepository
             .findById(key)
             .orElseThrow(() -> new RuntimeException("No task found with key: " + key));
 
@@ -51,20 +58,49 @@ public class TaskResource {
 
     zeebeClientService.getClient().newCompleteCommand(key).payload(payload).send().join();
 
-    repository.delete(task);
+    taskRepository.delete(task);
   }
 
   @RequestMapping(path = "/{key}/claim", method = RequestMethod.PUT)
   public void claimTask(@PathVariable("key") long key) {
 
     final TaskEntity task =
-        repository
+      taskRepository
             .findById(key)
             .orElseThrow(() -> new RuntimeException("No task found with key: " + key));
 
     final String username = SecurityContextHolder.getContext().getAuthentication().getName();
     task.setAssignee(username);
 
-    repository.save(task);
+    taskRepository.save(task);
+  }
+
+  @RequestMapping(path = "/assignee/list", method = RequestMethod.GET)
+  public List<TaskEntity> listTaskByAssignee() {
+
+    final String assignee = SecurityContextHolder.getContext().getAuthentication().getName();
+   
+    return taskRepository.findAllByAssignee(assignee, Pageable.unpaged());
+  }
+
+  
+  @RequestMapping(path = "/groups/list", method = RequestMethod.GET)
+  public List<TaskEntity> listTaskByClaimable() {
+
+    final String username = SecurityContextHolder.getContext().getAuthentication().getName();
+
+    List<String> groupNames =
+      userRepository
+        .findById(username)
+        .map(
+            user -> {
+              return user.getGroups()
+                .stream()
+                .map(GroupEntity::getName)
+                .collect(Collectors.toList());
+            })
+        .orElse(Collections.emptyList());
+   
+    return taskRepository.findAllByClaimable(groupNames, Pageable.unpaged());
   }
 }
