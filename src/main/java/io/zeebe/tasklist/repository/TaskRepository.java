@@ -45,4 +45,13 @@ public interface TaskRepository extends PagingAndSortingRepository<TaskEntity, L
               + "WHERE ASSIGNEE_ is null and (CANDIDATE_GROUP_ is null OR CANDIDATE_GROUP_ in (:groups))")
   List<TaskEntity> findAllByClaimable(
       @Param("groups") Collection<String> groups, Pageable pageable);
+
+    @Query(
+        nativeQuery = true,
+        value =
+            "SELECT * "
+                + "FROM TASK "
+                + "WHERE CANDIDATE_GROUP_ in (:group)")
+    List<TaskEntity> findAllByGroup(
+        @Param("group") String group, Pageable pageable);
 }
