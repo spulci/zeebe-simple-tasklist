@@ -15,43 +15,55 @@
  */
 package io.zeebe.tasklist.rest;
 
-import io.zeebe.tasklist.entity.GroupEntity;
-import io.zeebe.tasklist.repository.GroupRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Pageable;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.zeebe.tasklist.entity.GroupEntity;
+import io.zeebe.tasklist.repository.GroupRepository;
+import io.zeebe.tasklist.repository.TaskRepository;
+
 @RestController
 @RequestMapping("/api/groups")
 public class GroupResource {
 
-  @Autowired private GroupRepository repository;
+  @Autowired private GroupRepository groupRepository;
+  @Autowired private TaskRepository taskRepository;
 
   @RequestMapping(path = "/", method = RequestMethod.POST)
   public void createGroup(@RequestBody String name) {
 
-    if (repository.existsById(name)) {
+    if (groupRepository.existsById(name)) {
       throw new RuntimeException(String.format("Group with name '%s' already exists.", name));
     }
 
     final GroupEntity group = new GroupEntity();
     group.setName(name);
 
-    repository.save(group);
+    groupRepository.save(group);
   }
 
   @RequestMapping(path = "/{name}", method = RequestMethod.DELETE)
-  public void deleteUser(@PathVariable("name") String name) {
+  public void deleteGroup(@PathVariable("name") String name) {
 
-    if (!repository.existsById(name)) {
+    if (!groupRepository.existsById(name)) {
       throw new RuntimeException(String.format("Group with name '%s' doesn't exist.", name));
     }
-
-    // TODO un-claim all tasks of this group
-
-    repository.deleteById(name);
+    //unclaim all group task. 
+    //1) Unclaim all task owned by this group
+    taskRepository
+        .findAllByGroup(name, Pageable.unpaged())
+        .forEach(
+            task -> {
+              task.setAssignee(null);
+              task.setCandidateGroup(null);
+              taskRepository.save(task);
+            });
+    //2) delete group
+    groupRepository.deleteById(name);
   }
 }
