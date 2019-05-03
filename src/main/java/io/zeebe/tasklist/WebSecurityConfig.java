@@ -18,6 +18,11 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
 
   @Autowired private UserService userService;
 
+  @Autowired
+  private RestServicesBasicAuthenticationEntryPoint authenticationEntryPoint;
+ 
+
+  /*
   @Override
   protected void configure(HttpSecurity http) throws Exception {
     http.authorizeRequests()
@@ -38,6 +43,20 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
         .and()
         .logout()
         .permitAll();
+  }
+  */
+
+  @Override
+  protected void configure(HttpSecurity http) throws Exception {
+    http.
+        csrf()
+        .disable()
+        .authorizeRequests()
+        .antMatchers("/api/users/**", "/api/groups/**").hasRole(Roles.ADMIN.name())
+        .antMatchers("/api/tasks/**").authenticated()
+        .and()
+        .httpBasic()
+        .authenticationEntryPoint(authenticationEntryPoint);
   }
 
   @Bean
